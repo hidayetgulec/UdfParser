@@ -1,0 +1,52 @@
+import fs from 'fs';
+import path from 'path';
+import AdmZip from 'adm-zip';
+import { NextResponse } from 'next/server';
+import xml2js from 'xml2js';
+
+export async function POST(req) {
+  try {
+    // FormData'dan gelen dosyayı alıyoruz
+    const formData = await req.formData();
+    const udfFile = formData.get('udfFile');
+    
+    // Dosyayı geçici bir dosyaya yazıyoruz
+    const filePath = path.join(process.cwd(), 'uploads', udfFile.name);
+    const buffer = await udfFile.arrayBuffer();
+    fs.writeFileSync(filePath, Buffer.from(buffer));
+
+    // ZIP dosyasını çıkarıyoruz
+    const zip = new AdmZip(filePath);
+    const zipEntries = zip.getEntries();
+
+    // XML dosyasını çıkartma
+    let xmlContent = '';
+    zipEntries.forEach(entry => {
+      if (entry.entryName.endsWith('.xml')) {
+        xmlContent = entry.getData().toString('utf8');
+      }
+    });
+
+    if (xmlContent === '') {
+      return NextResponse.json({ error: 'No XML content found in the UDF file' }, { status: 400 });
+    }
+
+    // XML'i JSON'a dönüştürüyoruz
+    const parser = new xml2js.Parser();
+    const result = await new Promise((resolve, reject) => {
+      parser.parseString(xmlContent, (err, result) => {
+        if (err) reject('Error parsing XML content');
+        resolve(result);
+      });
+    });
+
+    console.log(result.template.content);
+
+
+    const data = result.template.content; // XML içindeki <data> etiketini alıyoruz
+    return NextResponse.json({ jsonData: data }); // JSON verisini döndürüyoruz
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: 'An error occurred during file processing' }, { status: 500 });
+  }
+}
